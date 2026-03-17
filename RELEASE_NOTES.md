@@ -1,26 +1,27 @@
-# Release v1.1.0 - Sélection des Écoles 🏫
+# Release v1.2.0 - Onglet Synthèse & Graphiques 📊
 
-Cette version apporte une fonctionnalité majeure de filtrage pour une précision accrue lors de vos exports.
+Cette version transforme l'export brut en un véritable outil de pilotage grâce à un nouvel onglet récapitulatif.
 
-## 🌟 Nouveautés de la version 1.1.0
+## 🌟 Nouveautés de la version 1.2.0
 
 ### Fonctionnalités de Traitement
-- **Sélection des Écoles (v7)** : Une nouvelle section a été ajoutée pour vous permettre de choisir précisément quelles écoles inclure dans l'export. La liste est générée dynamiquement après l'analyse de votre fichier source.
-- **Filtrage Cumulatif** : Le filtre par école s'ajoute aux filtres par date et par dérogation.
+- **Onglet "Synthèse" (v8)** : Le premier onglet du fichier généré présente désormais un tableau récapitulatif :
+    - Nombre total d'inscriptions.
+    - Détail par école (Inscriptions, Dérogations, Pourcentage).
+- **Graphiques Automatiques** : Ajout d'un graphique à barres dans l'onglet Synthèse pour visualiser la répartition des dérogations par école.
 
-### Interface
-- **Panneau de sélection** : Organisation en trois colonnes (Fichiers/Filtres, Onglets, Écoles) pour une meilleure visibilité.
-
-### Mise en forme professionnelle (Excel)
-- **Maintien des acquis** : Alignement vertical "Haut", colonnes élargies (75 pour la raison), et onglets séparés par école.
+### Excellence Visuelle
+- **Mise en forme des tableaux** : Styles de bordures, en-têtes colorés et calculs automatiques des totaux.
+- **Optimisation DLL** : Maintien de la correction pour l'erreur "Ordinal 380", garantissant un lancement fluide sur Windows 11.
 
 ---
 
 ## 📦 Comment installer / utiliser
 
-- **Pour les utilisateurs** : Téléchargez le fichier `ConvertisseurInscriptionScolaire.exe` dans le dossier `dist`.
+- **Pour les utilisateurs** : Téléchargez le fichier `ConvertisseurInscriptionScolaire.exe`.
 - **Pour les développeurs** :
     1. Installez les dépendances : `pip install -r requirements.txt`
     2. Lancez via `python converter_app.py`
 
 ---
+*Développé avec ❤️ pour la ville d'Illzach.*

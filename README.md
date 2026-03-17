@@ -6,6 +6,7 @@ Application Windows permettant de convertir des exports HTML/Excel d'inscription
 - **Interface Graphique** : Facile d'utilisation avec le logo de la ville.
 - **Sélection des Onglets** : Choisissez quels onglets de l'export traiter.
 - **Sélection des Écoles (Nouveau)** : Choisissez spécifiquement les écoles à inclure dans l'export via une liste dynamique.
+- **Onglet de Synthèse (Nouveau)** : Premier onglet récapitulatif avec statistiques (totaux, dérogations) et graphiques illustrant la répartition par école.
 - **Filtrage par Date** : Filtrez les inscriptions par date de création (Optionnel).
 - **Filtre Dérogation** : Filtrez les dossiers avec ou sans besoin de dérogation.
 - **Mise en Forme Automatique** : Génère un fichier Excel pro avec en-têtes stylisés, filtres et alignement vertical "Haut".
