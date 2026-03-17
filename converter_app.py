@@ -1,0 +1,392 @@
+
+import pandas as pd
+import tkinter as tk
+from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import ttk
+from PIL import Image, ImageTk
+from tkcalendar import DateEntry
+import os
+import shutil
+from datetime import datetime
+import threading
+import sys
+import re
+
+# For Excel styling
+from openpyxl import load_workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+class ExcelConverterApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Convertisseur inscription scolaire")
+        self.root.geometry("1000x800")
+        
+        # Color palette
+        self.bg_color = "#f8f9fa"
+        self.primary_color = "#004a99" # Illzach Blue
+        self.secondary_color = "#ffcc00" # Illzach Yellow
+        self.text_color = "#202124"
+        
+        self.root.configure(bg=self.bg_color)
+        
+        # Internal state
+        self.source_file = None
+        self.available_sheets = []
+        self.sheet_vars = {} # Dictionary to store BooleanVar for each sheet
+        self.date_filter_active = tk.BooleanVar(value=False) # Changed to False by default as requested (optional)
+
+        # UI Elements
+        self.setup_ui()
+
+    def setup_ui(self):
+        # Header Frame
+        header_frame = tk.Frame(self.root, bg="white", height=100)
+        header_frame.pack(fill="x")
+        
+        try:
+            logo_path = resource_path("1280px-LogoIllzach.jpg")
+            img = Image.open(logo_path)
+            aspect_ratio = img.width / img.height
+            new_height = 70
+            new_width = int(new_height * aspect_ratio)
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            self.logo_img = ImageTk.PhotoImage(img)
+            logo_label = tk.Label(header_frame, image=self.logo_img, bg="white")
+            logo_label.pack(side="left", padx=20, pady=10)
+        except Exception as e:
+            print(f"Could not load logo: {e}")
+
+        title_label = tk.Label(header_frame, text="Convertisseur Inscription Scolaire", 
+                               bg="white", fg=self.primary_color, 
+                               font=("Segoe UI", 22, "bold"))
+        title_label.pack(side="left", padx=10)
+
+        # Main frame
+        main_frame = tk.Frame(self.root, bg=self.bg_color, padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+
+        # Left Column: File & Filters
+        left_col = tk.Frame(main_frame, bg=self.bg_color)
+        left_col.pack(side="left", fill="both", expand=True, padx=(0, 15))
+
+        # 1. File Selection
+        file_frame = tk.LabelFrame(left_col, text="1. Sélection du fichier", bg=self.bg_color, font=("Segoe UI", 10, "bold"))
+        file_frame.pack(fill="x", pady=(0, 15))
+        
+        self.select_btn = tk.Button(file_frame, text="📁 Choisir l'export Illzach", 
+                                   command=self.select_file, bg=self.primary_color, fg="white",
+                                   font=("Segoe UI", 10), relief="flat", padx=15, pady=8, cursor="hand2")
+        self.select_btn.pack(pady=10)
+        
+        self.file_label = tk.Label(file_frame, text="Aucun fichier sélectionné", 
+                                  bg=self.bg_color, fg=self.text_color, font=("Segoe UI", 9, "italic"), wraplength=400)
+        self.file_label.pack(pady=(0, 10))
+
+        # 2. Advanced Filters
+        filter_frame = tk.LabelFrame(left_col, text="2. Filtres avancés", bg=self.bg_color, font=("Segoe UI", 10, "bold"))
+        filter_frame.pack(fill="x", pady=0)
+
+        # Date Filter Toggle
+        toggle_frame = tk.Frame(filter_frame, bg=self.bg_color)
+        toggle_frame.pack(fill="x", padx=10, pady=(10, 0))
+        tk.Checkbutton(toggle_frame, text="Activer le filtrage par date", variable=self.date_filter_active, 
+                       command=self.update_date_ui, bg=self.bg_color, font=("Segoe UI", 9, "bold")).pack(side="left")
+
+        # Date Filter Sub-frame
+        self.date_subframe = tk.Frame(filter_frame, bg=self.bg_color)
+        self.date_subframe.pack(fill="x", padx=10, pady=10)
+        
+        tk.Label(self.date_subframe, text="Date de début :", bg=self.bg_color).grid(row=0, column=0, sticky="w", pady=5)
+        self.start_date_entry = DateEntry(self.date_subframe, width=12, background='darkblue',
+                                         foreground='white', borderwidth=2, locale='fr_FR', date_pattern='dd/mm/yyyy')
+        self.start_date_entry.grid(row=0, column=1, padx=10, sticky="w")
+        
+        tk.Label(self.date_subframe, text="Date de fin :", bg=self.bg_color).grid(row=1, column=0, sticky="w", pady=5)
+        self.end_date_entry = DateEntry(self.date_subframe, width=12, background='darkblue',
+                                       foreground='white', borderwidth=2, locale='fr_FR', date_pattern='dd/mm/yyyy')
+        self.end_date_entry.grid(row=1, column=1, padx=10, sticky="w")
+
+        self.update_date_ui()
+
+        # Derogation Filter Sub-frame
+        derog_subframe = tk.Frame(filter_frame, bg=self.bg_color)
+        derog_subframe.pack(fill="x", padx=10, pady=(0, 15))
+        
+        tk.Label(derog_subframe, text="Besoin d'une dérogation ?", bg=self.bg_color).pack(side="left")
+        self.derog_filter_var = tk.StringVar(value="Tous")
+        self.derog_combo = ttk.Combobox(derog_subframe, textvariable=self.derog_filter_var, 
+                                       values=["Tous", "Oui", "Non"], state="readonly", width=10)
+        self.derog_combo.pack(side="left", padx=10)
+
+        # Right Column: Sheet Selection
+        right_col = tk.Frame(main_frame, bg=self.bg_color)
+        right_col.pack(side="right", fill="both", expand=True, padx=(15, 0))
+
+        sheet_frame = tk.LabelFrame(right_col, text="3. Sélection des onglets à traiter", bg=self.bg_color, font=("Segoe UI", 10, "bold"))
+        sheet_frame.pack(fill="both", expand=True)
+
+        self.sheets_canvas = tk.Canvas(sheet_frame, bg="white", borderwidth=0, highlightthickness=0)
+        self.sheets_scrollbar = ttk.Scrollbar(sheet_frame, orient="vertical", command=self.sheets_canvas.yview)
+        self.sheets_list_frame = tk.Frame(self.sheets_canvas, bg="white")
+
+        self.sheets_list_frame.bind("<Configure>", lambda e: self.sheets_canvas.configure(scrollregion=self.sheets_canvas.bbox("all")))
+        self.sheets_canvas.create_window((0, 0), window=self.sheets_list_frame, anchor="nw")
+        self.sheets_canvas.configure(yscrollcommand=self.sheets_scrollbar.set)
+
+        self.sheets_canvas.pack(side="left", fill="both", expand=True)
+        self.sheets_scrollbar.pack(side="right", fill="y")
+
+        # Bottom section: Logs & Action
+        bottom_frame = tk.Frame(self.root, bg=self.bg_color, padx=20)
+        bottom_frame.pack(fill="x", pady=(10, 20))
+
+        self.log_area = scrolledtext.ScrolledText(bottom_frame, height=8, font=("Consolas", 9), bg="white")
+        self.log_area.pack(fill="x", pady=(0, 15))
+
+        self.convert_btn = tk.Button(bottom_frame, text="🚀 GÉNÉRER L'EXPORT VÉROUILLÉ ET MIS EN FORME", 
+                                    command=self.start_conversion, bg="#28a745", fg="white",
+                                    font=("Segoe UI", 12, "bold"), relief="flat", padx=40, pady=15,
+                                    state="disabled", cursor="hand2")
+        self.convert_btn.pack()
+
+        self.log("Application v6 chargée.")
+
+    def update_date_ui(self):
+        state = "normal" if self.date_filter_active.get() else "disabled"
+        for child in self.date_subframe.winfo_children():
+            try:
+                child.configure(state=state)
+            except:
+                pass
+
+    def log(self, message):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_area.insert(tk.END, f"[{timestamp}] {message}\n")
+        self.log_area.see(tk.END)
+        self.root.update_idletasks()
+
+    def select_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx")])
+        if file_path:
+            self.source_file = file_path
+            self.file_label.config(text=os.path.basename(file_path), font=("Segoe UI", 9, "normal"))
+            self.log(f"Fichier chargé : {os.path.basename(file_path)}")
+            self.load_sheet_names()
+
+    def load_sheet_names(self):
+        try:
+            for widget in self.sheets_list_frame.winfo_children():
+                widget.destroy()
+            self.sheet_vars = {}
+
+            wb = load_workbook(self.source_file, read_only=True)
+            self.available_sheets = wb.sheetnames
+            wb.close()
+
+            for sheet in self.available_sheets:
+                var = tk.BooleanVar(value=True)
+                self.sheet_vars[sheet] = var
+                cb = tk.Checkbutton(self.sheets_list_frame, text=sheet, variable=var, 
+                                   bg="white", font=("Segoe UI", 9), anchor="w")
+                cb.pack(fill="x", padx=5, pady=2)
+            
+            self.convert_btn.config(state="normal")
+            self.log(f"Onglets trouvés : {len(self.available_sheets)}")
+        except Exception as e:
+            self.log(f"Erreur Lecture Onglets : {e}")
+
+    def start_conversion(self):
+        # Parse dates only if filter is active
+        start_date = None
+        end_date = None
+        
+        if self.date_filter_active.get():
+            try:
+                sd_str = self.start_date_entry.get()
+                if sd_str:
+                    start_date = datetime.strptime(sd_str, "%d/%m/%Y")
+                
+                ed_str = self.end_date_entry.get()
+                if ed_str:
+                    end_date = datetime.strptime(ed_str, "%d/%m/%Y")
+            except Exception:
+                messagebox.showerror("Erreur Date", "Format de date invalide (JJ/MM/AAAA attendu)")
+                return
+
+        derog_filter = self.derog_filter_var.get()
+        selected_sheets = [s for s, var in self.sheet_vars.items() if var.get()]
+        
+        if not selected_sheets:
+            messagebox.showwarning("Onglets", "Sélectionnez au moins un onglet.")
+            return
+
+        output_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            initialfile=f"Export_Illzach_EMS_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        )
+        
+        if not output_path:
+            return
+
+        self.convert_btn.config(state="disabled")
+        self.select_btn.config(state="disabled")
+        
+        params = {
+            "output_path": output_path,
+            "selected_sheets": selected_sheets,
+            "start_date": start_date,
+            "end_date": end_date,
+            "derog_filter": derog_filter,
+            "apply_date_filter": self.date_filter_active.get()
+        }
+        
+        threading.Thread(target=self.process_conversion, args=(params,), daemon=True).start()
+
+    def process_conversion(self, params):
+        try:
+            self.log("Démarrage du traitement v6...")
+            temp_path = "temp_v6.xlsx"
+            shutil.copy2(self.source_file, temp_path)
+            
+            combined_data = []
+            for sheet in params["selected_sheets"]:
+                df = pd.read_excel(temp_path, sheet_name=sheet)
+                if df.empty: continue
+                df['Onglet'] = sheet
+                combined_data.append(df)
+            
+            if not combined_data:
+                raise Exception("Aucune donnée.")
+                
+            df_full = pd.concat(combined_data, ignore_index=True)
+            
+            # --- DATE FILTERING (ONLY IF ACTIVE) ---
+            if params["apply_date_filter"] and 'Date de création' in df_full.columns:
+                self.log("Filtrage par date en cours...")
+                df_full['Date_dt'] = pd.to_datetime(df_full['Date de création'], format='%d/%m/%Y %H:%M:%S', errors='coerce')
+                if params["start_date"]:
+                    df_full = df_full[df_full['Date_dt'] >= params["start_date"]]
+                if params["end_date"]:
+                    limit = params["end_date"].replace(hour=23, minute=59, second=59)
+                    df_full = df_full[df_full['Date_dt'] <= limit]
+                df_full = df_full.drop(columns=['Date_dt'])
+            elif params["apply_date_filter"]:
+                 self.log("AVERTISSEMENT : 'Date de création' absente.")
+
+            # --- DEROGATION FILTERING ---
+            if params["derog_filter"] != "Tous" and "Besoin d'une dérogation" in df_full.columns:
+                self.log(f"Filtrage dérogation : {params['derog_filter']}...")
+                df_full = df_full[df_full["Besoin d'une dérogation"].astype(str).str.lower() == params["derog_filter"].lower()]
+
+            self.log(f"Lignes retenues : {len(df_full)}")
+
+            # Column mapping
+            mapping = {
+                'Onglet': 'Onglet',
+                'N° de dossier': 'N°',
+                'Nom enfant': 'Nom enfant',
+                'Prénom enfant': 'Prénom enfant',
+                'Date de naissance enfant': 'Date de naissance enfant',
+                "Besoin d'une dérogation": "Besoin d'une dérogation",
+                'Adresse indiquée': 'Adresse indiquée',
+                'Ecole': 'Ecole',
+                'Classe': 'Classe',
+                'Cursus': 'Cursus',
+                'Resp. 1 civilité': 'Resp. 1 civilité',
+                'Resp. 1 nom de naissance': 'Resp. 1 nom de naissance',
+                "Resp. 1 nom d'usage": "Resp. 1 nom d'usage",
+                'Resp. 1 prénom': 'Resp. 1 prénom',
+                'Resp. 1 téléphone': 'Resp. 1 téléphone',
+                'Resp. 1 email': 'Resp. 1 email',
+                'Resp. 1 adresse': 'Resp. 1 adresse',
+                'Fratrie 1 nom': 'Fratrie 1 nom',
+                'Fratrie 1 prénom': 'Fratrie 1 prénom',
+                'Fratrie 1 école': 'Fratrie 1 école',
+                'Fratrie 1 classe': 'Fratrie 1 classe',
+                'Dérogation école voulue': 'Dérogation école voulue',
+                'Dérogation autre école voulue - nom': 'Dérogation autre école voulue - nom',
+                'Dérogation raison': 'Dérogation raison'
+            }
+            
+            available_cols = [col for col in mapping.keys() if col in df_full.columns]
+            df_mapped = df_full[available_cols].rename(columns=mapping)
+            if 'Ecole' in df_mapped.columns:
+                df_mapped = df_mapped.sort_values(by='Ecole')
+            
+            with pd.ExcelWriter(params["output_path"], engine='openpyxl') as writer:
+                if 'Ecole' in df_mapped.columns:
+                    for school in df_mapped['Ecole'].unique():
+                        name = str(school)[:31].replace('/', '-').replace('\\', '-')
+                        if not name or name.lower() == 'nan': name = "Sans Ecole"
+                        df_s = df_mapped[df_mapped['Ecole'] == school].copy()
+                        df_s['N°'] = range(1, len(df_s) + 1)
+                        if 'Onglet' in df_s.columns:
+                            cols = df_s.columns.tolist()
+                            cols.insert(0, cols.pop(cols.index('Onglet')))
+                            df_s = df_s[cols]
+                        df_s.to_excel(writer, sheet_name=name, index=False)
+                else:
+                    df_mapped['N°'] = range(1, len(df_mapped) + 1)
+                    df_mapped.to_excel(writer, sheet_name="Export", index=False)
+            
+            # --- STYLING ---
+            self.log("Finalisation de la mise en forme...")
+            wb = load_workbook(params["output_path"])
+            h_fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
+            h_font = Font(bold=True)
+            top_align = Alignment(vertical="top")
+            top_align_wrap = Alignment(vertical="top", wrap_text=True)
+            
+            for sheet in wb.worksheets:
+                sheet.freeze_panes = 'A2'
+                sheet.auto_filter.ref = sheet.dimensions
+                for row in sheet.iter_rows():
+                    for cell in row: cell.alignment = top_align
+                for cell in sheet[1]:
+                    cell.fill = h_fill
+                    cell.font = h_font
+                    cell.alignment = Alignment(horizontal="center", vertical="top")
+                
+                for col in sheet.columns:
+                    letter = col[0].column_letter
+                    h = str(col[0].value).lower()
+                    if "dérogation raison" in h:
+                        sheet.column_dimensions[letter].width = 75 # EVEN WIDER
+                        for cell in col: cell.alignment = top_align_wrap
+                    elif "adresse" in h:
+                        sheet.column_dimensions[letter].width = 45
+                        for cell in col: cell.alignment = top_align_wrap
+                    elif "nom" in h or "prénom" in h or "ecole" in h:
+                        sheet.column_dimensions[letter].width = 25
+                    elif h == "n°":
+                        sheet.column_dimensions[letter].width = 6
+                        for cell in col: cell.alignment = Alignment(horizontal="center", vertical="top")
+                    else:
+                        sheet.column_dimensions[letter].width = 18
+
+            wb.save(params["output_path"])
+            if os.path.exists(temp_path): os.remove(temp_path)
+            self.log("Terminé avec succès !")
+            messagebox.showinfo("Succès", f"Fichier généré :\n{os.path.basename(params['output_path'])}")
+            
+        except Exception as e:
+            self.log(f"ERREUR : {e}")
+            messagebox.showerror("Erreur", str(e))
+        finally:
+            self.convert_btn.config(state="normal")
+            self.select_btn.config(state="normal")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ExcelConverterApp(root)
+    root.mainloop()
