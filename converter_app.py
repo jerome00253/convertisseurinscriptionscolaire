@@ -12,9 +12,11 @@ import threading
 import sys
 import re
 
-# For Excel styling
+# For Excel styling and charts
 from openpyxl import load_workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.styles import Font, Alignment, PatternFill, Side, Border
+from openpyxl.chart import BarChart, Reference
+from openpyxl.utils import get_column_letter
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -41,8 +43,8 @@ class ExcelConverterApp:
         # Internal state
         self.source_file = None
         self.available_sheets = []
-        self.sheet_vars = {} # Dictionary to store BooleanVar for each sheet
-        self.school_vars = {} # Dictionary to store BooleanVar for each school
+        self.sheet_vars = {} 
+        self.school_vars = {} 
         self.date_filter_active = tk.BooleanVar(value=False)
 
         # UI Elements
@@ -177,7 +179,7 @@ class ExcelConverterApp:
                                     state="disabled", cursor="hand2")
         self.convert_btn.pack()
 
-        self.log("Application v7 chargée.")
+        self.log("Application v8 chargée.")
 
     def update_date_ui(self):
         state = "normal" if self.date_filter_active.get() else "disabled"
@@ -203,7 +205,6 @@ class ExcelConverterApp:
 
     def load_metadata(self):
         try:
-            # Clear previous selections
             for widget in self.sheets_list_frame.winfo_children(): widget.destroy()
             for widget in self.schools_list_frame.winfo_children(): widget.destroy()
             self.sheet_vars = {}
@@ -214,7 +215,6 @@ class ExcelConverterApp:
             self.available_sheets = wb.sheetnames
             wb.close()
 
-            # Populate Sheets
             for sheet in self.available_sheets:
                 var = tk.BooleanVar(value=True)
                 self.sheet_vars[sheet] = var
@@ -222,7 +222,6 @@ class ExcelConverterApp:
                                    bg="white", font=("Segoe UI", 9), anchor="w")
                 cb.pack(fill="x", padx=5, pady=2)
 
-            # Populate Schools - Requires reading the data
             threading.Thread(target=self.extract_schools, daemon=True).start()
             
         except Exception as e:
@@ -299,8 +298,8 @@ class ExcelConverterApp:
 
     def process_conversion(self, params):
         try:
-            self.log("Démarrage v7...")
-            temp_path = "temp_v7.xlsx"
+            self.log("Démarrage v8 (Synthèse)...")
+            temp_path = "temp_v8.xlsx"
             shutil.copy2(self.source_file, temp_path)
             
             combined_data = []
@@ -314,7 +313,6 @@ class ExcelConverterApp:
             df_full = pd.concat(combined_data, ignore_index=True)
             
             # --- FILTERS ---
-            # Date
             if params["apply_date_filter"] and 'Date de création' in df_full.columns:
                 df_full['Date_dt'] = pd.to_datetime(df_full['Date de création'], format='%d/%m/%Y %H:%M:%S', errors='coerce')
                 if params["start_date"]:
@@ -324,17 +322,15 @@ class ExcelConverterApp:
                     df_full = df_full[df_full['Date_dt'] <= limit]
                 df_full = df_full.drop(columns=['Date_dt'])
 
-            # Derogation
             if params["derog_filter"] != "Tous" and "Besoin d'une dérogation" in df_full.columns:
                 df_full = df_full[df_full["Besoin d'une dérogation"].astype(str).str.lower() == params["derog_filter"].lower()]
 
-            # Schools (Custom v7)
             if "Ecole" in df_full.columns:
                 df_full = df_full[df_full["Ecole"].astype(str).isin(params["selected_schools"])]
 
             self.log(f"Lignes retenues : {len(df_full)}")
 
-            # Column mapping
+            # --- PREPARE DATA FOR INDIVIDUAL TABS ---
             mapping = {
                 'Onglet': 'Onglet', 'N° de dossier': 'N°', 'Nom enfant': 'Nom enfant', 'Prénom enfant': 'Prénom enfant',
                 'Date de naissance enfant': 'Date de naissance enfant', "Besoin d'une dérogation": "Besoin d'une dérogation",
@@ -351,7 +347,27 @@ class ExcelConverterApp:
             df_mapped = df_full[available_cols].rename(columns=mapping)
             if 'Ecole' in df_mapped.columns: df_mapped = df_mapped.sort_values(by='Ecole')
             
+            # --- START WRITING ---
             with pd.ExcelWriter(params["output_path"], engine='openpyxl') as writer:
+                # 1. SYNTHESIS DATA
+                self.log("Génération de la synthèse...")
+                if 'Ecole' in df_mapped.columns and "Besoin d'une dérogation" in df_mapped.columns:
+                    stats = []
+                    for school in df_mapped['Ecole'].unique():
+                        df_s = df_mapped[df_mapped['Ecole'] == school]
+                        total = len(df_s)
+                        derog = len(df_s[df_s["Besoin d'une dérogation"].astype(str).str.lower() == "oui"])
+                        perc = (derog / total * 100) if total > 0 else 0
+                        stats.append({
+                            'Ecole': school,
+                            'Inscriptions': total,
+                            'Dérogations': derog,
+                            '% Dérogation': round(perc, 1)
+                        })
+                    df_stats = pd.DataFrame(stats)
+                    df_stats.to_excel(writer, sheet_name="Synthèse", index=False, startrow=2)
+                
+                # 2. SCHOOL TABS
                 if 'Ecole' in df_mapped.columns:
                     for school in df_mapped['Ecole'].unique():
                         name = str(school)[:31].replace('/', '-').replace('\\', '-')
@@ -367,44 +383,101 @@ class ExcelConverterApp:
                     df_mapped['N°'] = range(1, len(df_mapped) + 1)
                     df_mapped.to_excel(writer, sheet_name="Export", index=False)
             
-            # --- STYLING ---
-            self.log("Mise en forme...")
+            # --- POST-PROCESSING STYLING & CHARTS ---
+            self.log("Mise en forme et graphiques...")
             wb = load_workbook(params["output_path"])
+            
+            # Global styles
             h_fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
             h_font = Font(bold=True)
+            top_align = Alignment(vertical="top")
             top_align_wrap = Alignment(vertical="top", wrap_text=True)
-            
-            for sheet in wb.worksheets:
-                sheet.freeze_panes = 'A2'
-                sheet.auto_filter.ref = sheet.dimensions
-                for row in sheet.iter_rows():
-                    for cell in row: cell.alignment = Alignment(vertical="top")
-                for cell in sheet[1]:
+            border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+            # Stylize Synthesis
+            if "Synthèse" in wb.sheetnames:
+                ws = wb["Synthèse"]
+                ws.insert_rows(1, 1)
+                ws["A1"] = "SYNTHÈSE DES INSCRIPTIONS SCOLAIRES"
+                ws["A1"].font = Font(size=16, bold=True, color="004a99")
+                
+                # Table range (data starts at row 4 because of insert and header)
+                last_row = ws.max_row
+                
+                # Style and formatting
+                for cell in ws[3]: # Header row
+                    cell.fill = h_fill
+                    cell.font = h_font
+                    cell.alignment = Alignment(horizontal="center")
+                    cell.border = border
+                
+                for row in range(4, last_row + 1):
+                    for col in range(1, 5):
+                        cell = ws.cell(row=row, column=col)
+                        cell.border = border
+                        cell.alignment = Alignment(horizontal="center")
+                
+                ws.column_dimensions['A'].width = 35
+                ws.column_dimensions['B'].width = 15
+                ws.column_dimensions['C'].width = 15
+                ws.column_dimensions['D'].width = 15
+
+                # Add Total row
+                ws.cell(row=last_row+1, column=1, value="TOTAL GÉNÉRAL").font = Font(bold=True)
+                ws.cell(row=last_row+1, column=2, value=f"=SUM(B4:B{last_row})").font = Font(bold=True)
+                ws.cell(row=last_row+1, column=3, value=f"=SUM(C4:C{last_row})").font = Font(bold=True)
+                for col in range(1, 4):
+                     ws.cell(row=last_row+1, column=col).border = border
+
+                # Add Chart
+                chart = BarChart()
+                chart.type = "col"
+                chart.style = 10
+                chart.title = "Répartition des Dérogations par École"
+                chart.y_axis.title = "Nombre"
+                chart.x_axis.title = "Écoles"
+                
+                data = Reference(ws, min_col=2, min_row=3, max_row=last_row, max_col=3)
+                cats = Reference(ws, min_col=1, min_row=4, max_row=last_row)
+                chart.add_data(data, titles_from_data=True)
+                chart.set_categories(cats)
+                chart.shape = 4
+                ws.add_chart(chart, "F4")
+
+            # Stylize School Tabs
+            for sheet_name in wb.sheetnames:
+                if sheet_name == "Synthèse": continue
+                ws = wb[sheet_name]
+                ws.freeze_panes = 'A2'
+                ws.auto_filter.ref = ws.dimensions
+                for row in ws.iter_rows():
+                    for cell in row: cell.alignment = top_align
+                for cell in ws[1]:
                     cell.fill = h_fill
                     cell.font = h_font
                     cell.alignment = Alignment(horizontal="center", vertical="top")
                 
-                for col in sheet.columns:
-                    letter = col[0].column_letter
-                    h = str(col[0].value).lower()
+                for col_ws in ws.columns:
+                    letter = col_ws[0].column_letter
+                    h = str(col_ws[0].value).lower()
                     if "dérogation raison" in h:
-                        sheet.column_dimensions[letter].width = 75
-                        for cell in col: cell.alignment = top_align_wrap
+                        ws.column_dimensions[letter].width = 75
+                        for cell in col_ws: cell.alignment = top_align_wrap
                     elif "adresse" in h:
-                        sheet.column_dimensions[letter].width = 45
-                        for cell in col: cell.alignment = top_align_wrap
+                        ws.column_dimensions[letter].width = 45
+                        for cell in col_ws: cell.alignment = top_align_wrap
                     elif "nom" in h or "prénom" in h or "ecole" in h:
-                        sheet.column_dimensions[letter].width = 25
+                        ws.column_dimensions[letter].width = 25
                     elif h == "n°":
-                        sheet.column_dimensions[letter].width = 6
-                        for cell in col: cell.alignment = Alignment(horizontal="center", vertical="top")
+                        ws.column_dimensions[letter].width = 6
+                        for cell in col_ws: cell.alignment = Alignment(horizontal="center", vertical="top")
                     else:
-                        sheet.column_dimensions[letter].width = 18
+                        ws.column_dimensions[letter].width = 18
 
             wb.save(params["output_path"])
             if os.path.exists(temp_path): os.remove(temp_path)
             self.log("Terminé avec succès !")
-            messagebox.showinfo("Succès", f"Fichier généré :\n{os.path.basename(params['output_path'])}")
+            messagebox.showinfo("Succès", f"Fichier généré avec Synthèse et Graphiques.")
             
         except Exception as e:
             self.log(f"ERREUR : {e}")
