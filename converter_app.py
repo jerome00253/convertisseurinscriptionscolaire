@@ -28,7 +28,7 @@ class ExcelConverterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Convertisseur inscription scolaire")
-        self.root.geometry("1000x800")
+        self.root.geometry("1100x850")
         
         # Color palette
         self.bg_color = "#f8f9fa"
@@ -42,7 +42,8 @@ class ExcelConverterApp:
         self.source_file = None
         self.available_sheets = []
         self.sheet_vars = {} # Dictionary to store BooleanVar for each sheet
-        self.date_filter_active = tk.BooleanVar(value=False) # Changed to False by default as requested (optional)
+        self.school_vars = {} # Dictionary to store BooleanVar for each school
+        self.date_filter_active = tk.BooleanVar(value=False)
 
         # UI Elements
         self.setup_ui()
@@ -127,11 +128,11 @@ class ExcelConverterApp:
                                        values=["Tous", "Oui", "Non"], state="readonly", width=10)
         self.derog_combo.pack(side="left", padx=10)
 
-        # Right Column: Sheet Selection
-        right_col = tk.Frame(main_frame, bg=self.bg_color)
-        right_col.pack(side="right", fill="both", expand=True, padx=(15, 0))
+        # Middle Column: Sheet Selection
+        mid_col = tk.Frame(main_frame, bg=self.bg_color)
+        mid_col.pack(side="left", fill="both", expand=True, padx=(15, 15))
 
-        sheet_frame = tk.LabelFrame(right_col, text="3. Sélection des onglets à traiter", bg=self.bg_color, font=("Segoe UI", 10, "bold"))
+        sheet_frame = tk.LabelFrame(mid_col, text="3. Sélection des onglets", bg=self.bg_color, font=("Segoe UI", 10, "bold"))
         sheet_frame.pack(fill="both", expand=True)
 
         self.sheets_canvas = tk.Canvas(sheet_frame, bg="white", borderwidth=0, highlightthickness=0)
@@ -145,11 +146,29 @@ class ExcelConverterApp:
         self.sheets_canvas.pack(side="left", fill="both", expand=True)
         self.sheets_scrollbar.pack(side="right", fill="y")
 
+        # Right Column: School Selection
+        right_col = tk.Frame(main_frame, bg=self.bg_color)
+        right_col.pack(side="right", fill="both", expand=True, padx=(15, 0))
+
+        school_list_frame_container = tk.LabelFrame(right_col, text="4. Sélection des écoles", bg=self.bg_color, font=("Segoe UI", 10, "bold"))
+        school_list_frame_container.pack(fill="both", expand=True)
+
+        self.schools_canvas = tk.Canvas(school_list_frame_container, bg="white", borderwidth=0, highlightthickness=0)
+        self.schools_scrollbar = ttk.Scrollbar(school_list_frame_container, orient="vertical", command=self.schools_canvas.yview)
+        self.schools_list_frame = tk.Frame(self.schools_canvas, bg="white")
+
+        self.schools_list_frame.bind("<Configure>", lambda e: self.schools_canvas.configure(scrollregion=self.schools_canvas.bbox("all")))
+        self.schools_canvas.create_window((0, 0), window=self.schools_list_frame, anchor="nw")
+        self.schools_canvas.configure(yscrollcommand=self.schools_scrollbar.set)
+
+        self.schools_canvas.pack(side="left", fill="both", expand=True)
+        self.schools_scrollbar.pack(side="right", fill="y")
+
         # Bottom section: Logs & Action
         bottom_frame = tk.Frame(self.root, bg=self.bg_color, padx=20)
         bottom_frame.pack(fill="x", pady=(10, 20))
 
-        self.log_area = scrolledtext.ScrolledText(bottom_frame, height=8, font=("Consolas", 9), bg="white")
+        self.log_area = scrolledtext.ScrolledText(bottom_frame, height=6, font=("Consolas", 9), bg="white")
         self.log_area.pack(fill="x", pady=(0, 15))
 
         self.convert_btn = tk.Button(bottom_frame, text="🚀 GÉNÉRER L'EXPORT VÉROUILLÉ ET MIS EN FORME", 
@@ -158,7 +177,7 @@ class ExcelConverterApp:
                                     state="disabled", cursor="hand2")
         self.convert_btn.pack()
 
-        self.log("Application v6 chargée.")
+        self.log("Application v7 chargée.")
 
     def update_date_ui(self):
         state = "normal" if self.date_filter_active.get() else "disabled"
@@ -180,32 +199,57 @@ class ExcelConverterApp:
             self.source_file = file_path
             self.file_label.config(text=os.path.basename(file_path), font=("Segoe UI", 9, "normal"))
             self.log(f"Fichier chargé : {os.path.basename(file_path)}")
-            self.load_sheet_names()
+            self.load_metadata()
 
-    def load_sheet_names(self):
+    def load_metadata(self):
         try:
-            for widget in self.sheets_list_frame.winfo_children():
-                widget.destroy()
+            # Clear previous selections
+            for widget in self.sheets_list_frame.winfo_children(): widget.destroy()
+            for widget in self.schools_list_frame.winfo_children(): widget.destroy()
             self.sheet_vars = {}
+            self.school_vars = {}
 
+            self.log("Analyse du fichier en cours...")
             wb = load_workbook(self.source_file, read_only=True)
             self.available_sheets = wb.sheetnames
             wb.close()
 
+            # Populate Sheets
             for sheet in self.available_sheets:
                 var = tk.BooleanVar(value=True)
                 self.sheet_vars[sheet] = var
                 cb = tk.Checkbutton(self.sheets_list_frame, text=sheet, variable=var, 
                                    bg="white", font=("Segoe UI", 9), anchor="w")
                 cb.pack(fill="x", padx=5, pady=2)
+
+            # Populate Schools - Requires reading the data
+            threading.Thread(target=self.extract_schools, daemon=True).start()
+            
+        except Exception as e:
+            self.log(f"Erreur Lecture : {e}")
+
+    def extract_schools(self):
+        try:
+            schools = set()
+            for sheet in self.available_sheets:
+                df = pd.read_excel(self.source_file, sheet_name=sheet, usecols=["Ecole"])
+                if not df.empty and "Ecole" in df.columns:
+                    schools.update(df["Ecole"].dropna().unique())
+            
+            sorted_schools = sorted([str(s) for s in schools])
+            for school in sorted_schools:
+                var = tk.BooleanVar(value=True)
+                self.school_vars[school] = var
+                cb = tk.Checkbutton(self.schools_list_frame, text=school, variable=var, 
+                                   bg="white", font=("Segoe UI", 9), anchor="w")
+                cb.pack(fill="x", padx=5, pady=2)
             
             self.convert_btn.config(state="normal")
-            self.log(f"Onglets trouvés : {len(self.available_sheets)}")
+            self.log(f"Analyse terminée : {len(self.available_sheets)} onglets, {len(sorted_schools)} écoles.")
         except Exception as e:
-            self.log(f"Erreur Lecture Onglets : {e}")
+            self.log(f"Erreur Analyse Écoles : {e}")
 
     def start_conversion(self):
-        # Parse dates only if filter is active
         start_date = None
         end_date = None
         
@@ -214,19 +258,21 @@ class ExcelConverterApp:
                 sd_str = self.start_date_entry.get()
                 if sd_str:
                     start_date = datetime.strptime(sd_str, "%d/%m/%Y")
-                
                 ed_str = self.end_date_entry.get()
                 if ed_str:
                     end_date = datetime.strptime(ed_str, "%d/%m/%Y")
             except Exception:
-                messagebox.showerror("Erreur Date", "Format de date invalide (JJ/MM/AAAA attendu)")
+                messagebox.showerror("Erreur Date", "Format de date invalide.")
                 return
 
-        derog_filter = self.derog_filter_var.get()
         selected_sheets = [s for s, var in self.sheet_vars.items() if var.get()]
+        selected_schools = [s for s, var in self.school_vars.items() if var.get()]
         
         if not selected_sheets:
             messagebox.showwarning("Onglets", "Sélectionnez au moins un onglet.")
+            return
+        if not selected_schools:
+            messagebox.showwarning("Écoles", "Sélectionnez au moins une école.")
             return
 
         output_path = filedialog.asksaveasfilename(
@@ -235,18 +281,17 @@ class ExcelConverterApp:
             initialfile=f"Export_Illzach_EMS_{datetime.now().strftime('%Y%m%d')}.xlsx"
         )
         
-        if not output_path:
-            return
+        if not output_path: return
 
         self.convert_btn.config(state="disabled")
-        self.select_btn.config(state="disabled")
         
         params = {
             "output_path": output_path,
             "selected_sheets": selected_sheets,
+            "selected_schools": selected_schools,
             "start_date": start_date,
             "end_date": end_date,
-            "derog_filter": derog_filter,
+            "derog_filter": self.derog_filter_var.get(),
             "apply_date_filter": self.date_filter_active.get()
         }
         
@@ -254,8 +299,8 @@ class ExcelConverterApp:
 
     def process_conversion(self, params):
         try:
-            self.log("Démarrage du traitement v6...")
-            temp_path = "temp_v6.xlsx"
+            self.log("Démarrage v7...")
+            temp_path = "temp_v7.xlsx"
             shutil.copy2(self.source_file, temp_path)
             
             combined_data = []
@@ -265,14 +310,12 @@ class ExcelConverterApp:
                 df['Onglet'] = sheet
                 combined_data.append(df)
             
-            if not combined_data:
-                raise Exception("Aucune donnée.")
-                
+            if not combined_data: raise Exception("Aucune donnée.")
             df_full = pd.concat(combined_data, ignore_index=True)
             
-            # --- DATE FILTERING (ONLY IF ACTIVE) ---
+            # --- FILTERS ---
+            # Date
             if params["apply_date_filter"] and 'Date de création' in df_full.columns:
-                self.log("Filtrage par date en cours...")
                 df_full['Date_dt'] = pd.to_datetime(df_full['Date de création'], format='%d/%m/%Y %H:%M:%S', errors='coerce')
                 if params["start_date"]:
                     df_full = df_full[df_full['Date_dt'] >= params["start_date"]]
@@ -280,48 +323,33 @@ class ExcelConverterApp:
                     limit = params["end_date"].replace(hour=23, minute=59, second=59)
                     df_full = df_full[df_full['Date_dt'] <= limit]
                 df_full = df_full.drop(columns=['Date_dt'])
-            elif params["apply_date_filter"]:
-                 self.log("AVERTISSEMENT : 'Date de création' absente.")
 
-            # --- DEROGATION FILTERING ---
+            # Derogation
             if params["derog_filter"] != "Tous" and "Besoin d'une dérogation" in df_full.columns:
-                self.log(f"Filtrage dérogation : {params['derog_filter']}...")
                 df_full = df_full[df_full["Besoin d'une dérogation"].astype(str).str.lower() == params["derog_filter"].lower()]
+
+            # Schools (Custom v7)
+            if "Ecole" in df_full.columns:
+                df_full = df_full[df_full["Ecole"].astype(str).isin(params["selected_schools"])]
 
             self.log(f"Lignes retenues : {len(df_full)}")
 
             # Column mapping
             mapping = {
-                'Onglet': 'Onglet',
-                'N° de dossier': 'N°',
-                'Nom enfant': 'Nom enfant',
-                'Prénom enfant': 'Prénom enfant',
-                'Date de naissance enfant': 'Date de naissance enfant',
-                "Besoin d'une dérogation": "Besoin d'une dérogation",
-                'Adresse indiquée': 'Adresse indiquée',
-                'Ecole': 'Ecole',
-                'Classe': 'Classe',
-                'Cursus': 'Cursus',
-                'Resp. 1 civilité': 'Resp. 1 civilité',
-                'Resp. 1 nom de naissance': 'Resp. 1 nom de naissance',
-                "Resp. 1 nom d'usage": "Resp. 1 nom d'usage",
-                'Resp. 1 prénom': 'Resp. 1 prénom',
-                'Resp. 1 téléphone': 'Resp. 1 téléphone',
-                'Resp. 1 email': 'Resp. 1 email',
-                'Resp. 1 adresse': 'Resp. 1 adresse',
-                'Fratrie 1 nom': 'Fratrie 1 nom',
-                'Fratrie 1 prénom': 'Fratrie 1 prénom',
-                'Fratrie 1 école': 'Fratrie 1 école',
-                'Fratrie 1 classe': 'Fratrie 1 classe',
-                'Dérogation école voulue': 'Dérogation école voulue',
-                'Dérogation autre école voulue - nom': 'Dérogation autre école voulue - nom',
-                'Dérogation raison': 'Dérogation raison'
+                'Onglet': 'Onglet', 'N° de dossier': 'N°', 'Nom enfant': 'Nom enfant', 'Prénom enfant': 'Prénom enfant',
+                'Date de naissance enfant': 'Date de naissance enfant', "Besoin d'une dérogation": "Besoin d'une dérogation",
+                'Adresse indiquée': 'Adresse indiquée', 'Ecole': 'Ecole', 'Classe': 'Classe', 'Cursus': 'Cursus',
+                'Resp. 1 civilité': 'Resp. 1 civilité', 'Resp. 1 nom de naissance': 'Resp. 1 nom de naissance',
+                "Resp. 1 nom d'usage": "Resp. 1 nom d'usage", 'Resp. 1 prénom': 'Resp. 1 prénom',
+                'Resp. 1 téléphone': 'Resp. 1 téléphone', 'Resp. 1 email': 'Resp. 1 email', 'Resp. 1 adresse': 'Resp. 1 adresse',
+                'Fratrie 1 nom': 'Fratrie 1 nom', 'Fratrie 1 prénom': 'Fratrie 1 prénom', 'Fratrie 1 école': 'Fratrie 1 école',
+                'Fratrie 1 classe': 'Fratrie 1 classe', 'Dérogation école voulue': 'Dérogation école voulue',
+                'Dérogation autre école voulue - nom': 'Dérogation autre école voulue - nom', 'Dérogation raison': 'Dérogation raison'
             }
             
             available_cols = [col for col in mapping.keys() if col in df_full.columns]
             df_mapped = df_full[available_cols].rename(columns=mapping)
-            if 'Ecole' in df_mapped.columns:
-                df_mapped = df_mapped.sort_values(by='Ecole')
+            if 'Ecole' in df_mapped.columns: df_mapped = df_mapped.sort_values(by='Ecole')
             
             with pd.ExcelWriter(params["output_path"], engine='openpyxl') as writer:
                 if 'Ecole' in df_mapped.columns:
@@ -340,18 +368,17 @@ class ExcelConverterApp:
                     df_mapped.to_excel(writer, sheet_name="Export", index=False)
             
             # --- STYLING ---
-            self.log("Finalisation de la mise en forme...")
+            self.log("Mise en forme...")
             wb = load_workbook(params["output_path"])
             h_fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
             h_font = Font(bold=True)
-            top_align = Alignment(vertical="top")
             top_align_wrap = Alignment(vertical="top", wrap_text=True)
             
             for sheet in wb.worksheets:
                 sheet.freeze_panes = 'A2'
                 sheet.auto_filter.ref = sheet.dimensions
                 for row in sheet.iter_rows():
-                    for cell in row: cell.alignment = top_align
+                    for cell in row: cell.alignment = Alignment(vertical="top")
                 for cell in sheet[1]:
                     cell.fill = h_fill
                     cell.font = h_font
@@ -361,7 +388,7 @@ class ExcelConverterApp:
                     letter = col[0].column_letter
                     h = str(col[0].value).lower()
                     if "dérogation raison" in h:
-                        sheet.column_dimensions[letter].width = 75 # EVEN WIDER
+                        sheet.column_dimensions[letter].width = 75
                         for cell in col: cell.alignment = top_align_wrap
                     elif "adresse" in h:
                         sheet.column_dimensions[letter].width = 45
