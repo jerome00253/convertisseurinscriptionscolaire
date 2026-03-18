@@ -464,10 +464,15 @@ class ExcelConverterApp:
                 ws.cell(row=t_row, column=1, value="TOTAL GÉNÉRAL").font = Font(bold=True)
                 # Calculate sums for all columns except Ecole and % Dérog.
                 for c_idx in range(2, last_col + 1):
-                    col_name = ws.cell(row=3, column=c_idx).value
-                    if col_name == "% Dérog.": 
-                        c_letter = get_column_letter(c_idx)
-                        ws.cell(row=t_row, column=c_idx, value=f"=AVERAGE({c_letter}4:{c_letter}{last_row})").font = Font(bold=True)
+                    col_str = str(ws.cell(row=3, column=c_idx).value)
+                    if "%" in col_str and "rog" in col_str:
+                        if "Total" in col_indices and "Dérogations" in col_indices:
+                            t_col = get_column_letter(col_indices["Total"])
+                            d_col = get_column_letter(col_indices["Dérogations"])
+                            ws.cell(row=t_row, column=c_idx, value=f"=IF({t_col}{t_row}>0, {d_col}{t_row}/{t_col}{t_row}*100, 0)").font = Font(bold=True)
+                        else:
+                            c_letter = get_column_letter(c_idx)
+                            ws.cell(row=t_row, column=c_idx, value=f"=AVERAGE({c_letter}4:{c_letter}{last_row})").font = Font(bold=True)
                         ws.cell(row=t_row, column=c_idx).number_format = '0.0'
                         continue
                         
