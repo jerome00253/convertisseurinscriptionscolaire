@@ -46,6 +46,8 @@ class ExcelConverterApp:
         self.sheet_vars = {} 
         self.school_vars = {} 
         self.date_filter_active = tk.BooleanVar(value=False)
+        # Summary Generation Toggle
+        self.gen_summary_var = tk.BooleanVar(value=False)
 
         # UI Elements
         self.setup_ui()
@@ -102,7 +104,7 @@ class ExcelConverterApp:
         toggle_frame = tk.Frame(filter_frame, bg=self.bg_color)
         toggle_frame.pack(fill="x", padx=10, pady=(10, 0))
         tk.Checkbutton(toggle_frame, text="Activer le filtrage par date", variable=self.date_filter_active, 
-                       command=self.update_date_ui, bg=self.bg_color, font=("Segoe UI", 9, "bold")).pack(side="left")
+                       command=self.update_ui_states, bg=self.bg_color, font=("Segoe UI", 9, "bold")).pack(side="left")
 
         # Date Filter Sub-frame
         self.date_subframe = tk.Frame(filter_frame, bg=self.bg_color)
@@ -118,8 +120,6 @@ class ExcelConverterApp:
                                        foreground='white', borderwidth=2, locale='fr_FR', date_pattern='dd/mm/yyyy')
         self.end_date_entry.grid(row=1, column=1, padx=10, sticky="w")
 
-        self.update_date_ui()
-
         # Derogation Filter Sub-frame
         derog_subframe = tk.Frame(filter_frame, bg=self.bg_color)
         derog_subframe.pack(fill="x", padx=10, pady=(0, 15))
@@ -129,6 +129,14 @@ class ExcelConverterApp:
         self.derog_combo = ttk.Combobox(derog_subframe, textvariable=self.derog_filter_var, 
                                        values=["Tous", "Oui", "Non"], state="readonly", width=10)
         self.derog_combo.pack(side="left", padx=10)
+
+        # Summary Generation Toggle
+        summary_toggle_frame = tk.Frame(filter_frame, bg=self.bg_color)
+        summary_toggle_frame.pack(fill="x", padx=10, pady=(0, 5))
+        tk.Checkbutton(summary_toggle_frame, text="Générer la page de synthèse", variable=self.gen_summary_var, 
+                       command=self.update_ui_states, bg=self.bg_color, font=("Segoe UI", 9, "bold")).pack(side="left")
+
+        self.update_ui_states()
 
         # Middle Column: Sheet Selection
         mid_col = tk.Frame(main_frame, bg=self.bg_color)
@@ -179,16 +187,18 @@ class ExcelConverterApp:
                                     state="disabled", cursor="hand2")
         self.convert_btn.pack()
 
-        self.log("Application v8 chargée.")
+        self.log("Application v9 prête (Synthèse Avancée).")
 
-    def update_date_ui(self):
-        state = "normal" if self.date_filter_active.get() else "disabled"
+    def update_ui_states(self):
+        # Date Filter
+        date_state = "normal" if self.date_filter_active.get() else "disabled"
         for child in self.date_subframe.winfo_children():
             try:
-                child.configure(state=state)
+                child.configure(state=date_state)
             except:
                 pass
-
+        
+        pass
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_area.insert(tk.END, f"[{timestamp}] {message}\n")
@@ -291,15 +301,16 @@ class ExcelConverterApp:
             "start_date": start_date,
             "end_date": end_date,
             "derog_filter": self.derog_filter_var.get(),
-            "apply_date_filter": self.date_filter_active.get()
+            "apply_date_filter": self.date_filter_active.get(),
+            "gen_summary": self.gen_summary_var.get()
         }
         
         threading.Thread(target=self.process_conversion, args=(params,), daemon=True).start()
 
     def process_conversion(self, params):
         try:
-            self.log("Démarrage v8 (Synthèse)...")
-            temp_path = "temp_v8.xlsx"
+            self.log("Démarrage v9 (Synthèse Avancée)...")
+            temp_path = "temp_v9.xlsx"
             shutil.copy2(self.source_file, temp_path)
             
             combined_data = []
@@ -330,6 +341,13 @@ class ExcelConverterApp:
 
             self.log(f"Lignes retenues : {len(df_full)}")
 
+            # Identify Status Column
+            status_col = None
+            for c in ["État", "Etat", "Statut", "Etat dossier"]:
+                if c in df_full.columns:
+                    status_col = c
+                    break
+            
             # --- PREPARE DATA FOR INDIVIDUAL TABS ---
             mapping = {
                 'Onglet': 'Onglet', 'N° de dossier': 'N°', 'Nom enfant': 'Nom enfant', 'Prénom enfant': 'Prénom enfant',
@@ -342,6 +360,7 @@ class ExcelConverterApp:
                 'Fratrie 1 classe': 'Fratrie 1 classe', 'Dérogation école voulue': 'Dérogation école voulue',
                 'Dérogation autre école voulue - nom': 'Dérogation autre école voulue - nom', 'Dérogation raison': 'Dérogation raison'
             }
+            if status_col: mapping[status_col] = "État"
             
             available_cols = [col for col in mapping.keys() if col in df_full.columns]
             df_mapped = df_full[available_cols].rename(columns=mapping)
@@ -349,21 +368,35 @@ class ExcelConverterApp:
             
             # --- START WRITING ---
             with pd.ExcelWriter(params["output_path"], engine='openpyxl') as writer:
-                # 1. SYNTHESIS DATA
-                self.log("Génération de la synthèse...")
-                if 'Ecole' in df_mapped.columns and "Besoin d'une dérogation" in df_mapped.columns:
+                # 1. ADVANCED SYNTHESIS DATA
+                if params.get("gen_summary", False) and 'Ecole' in df_mapped.columns:
+                    self.log("Génération de la synthèse avancée...")
                     stats = []
                     for school in df_mapped['Ecole'].unique():
-                        df_s = df_mapped[df_mapped['Ecole'] == school]
+                        df_s = df_mapped[df_mapped['Ecole'] == school].copy()
                         total = len(df_s)
-                        derog = len(df_s[df_s["Besoin d'une dérogation"].astype(str).str.lower() == "oui"])
-                        perc = (derog / total * 100) if total > 0 else 0
-                        stats.append({
+                        
+                        school_stats = {
                             'Ecole': school,
-                            'Inscriptions': total,
-                            'Dérogations': derog,
-                            '% Dérogation': round(perc, 1)
-                        })
+                            'Total': total
+                        }
+                        
+                        for sheet_name in params["selected_sheets"]:
+                            count = 0
+                            if "Onglet" in df_s.columns:
+                                count = len(df_s[df_s["Onglet"] == sheet_name])
+                            school_stats[sheet_name] = count
+                        
+                        derog = 0
+                        if "Besoin d'une dérogation" in df_s.columns:
+                            derog = len(df_s[df_s["Besoin d'une dérogation"].astype(str).str.lower() == "oui"])
+                        
+                        perc = (derog / total * 100) if total > 0 else 0
+                        school_stats['Dérogations'] = derog
+                        school_stats['% Dérog.'] = round(perc, 1)
+                        
+                        stats.append(school_stats)
+                    
                     df_stats = pd.DataFrame(stats)
                     df_stats.to_excel(writer, sheet_name="Synthèse", index=False, startrow=2)
                 
@@ -384,7 +417,7 @@ class ExcelConverterApp:
                     df_mapped.to_excel(writer, sheet_name="Export", index=False)
             
             # --- POST-PROCESSING STYLING & CHARTS ---
-            self.log("Mise en forme et graphiques...")
+            self.log("Mise en forme et graphiques empilés...")
             wb = load_workbook(params["output_path"])
             
             # Global styles
@@ -398,51 +431,78 @@ class ExcelConverterApp:
             if "Synthèse" in wb.sheetnames:
                 ws = wb["Synthèse"]
                 ws.insert_rows(1, 1)
-                ws["A1"] = "SYNTHÈSE DES INSCRIPTIONS SCOLAIRES"
-                ws["A1"].font = Font(size=16, bold=True, color="004a99")
+                ws["A1"] = "TABLEAU DE BORD DES INSCRIPTIONS SCOLAIRES"
+                ws["A1"].font = Font(size=18, bold=True, color="004a99")
                 
-                # Table range (data starts at row 4 because of insert and header)
                 last_row = ws.max_row
+                last_col = ws.max_column
                 
-                # Style and formatting
-                for cell in ws[3]: # Header row
+                # Style header
+                for cell in ws[3]:
                     cell.fill = h_fill
                     cell.font = h_font
-                    cell.alignment = Alignment(horizontal="center")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
                     cell.border = border
                 
+                # Style data rows
                 for row in range(4, last_row + 1):
-                    for col in range(1, 5):
+                    for col in range(1, last_col + 1):
                         cell = ws.cell(row=row, column=col)
                         cell.border = border
                         cell.alignment = Alignment(horizontal="center")
                 
+                # Index of columns for Chart
+                col_indices = {ws.cell(row=3, column=c).value: c for c in range(1, last_col + 1)}
+
+                # Adjust widths
                 ws.column_dimensions['A'].width = 35
-                ws.column_dimensions['B'].width = 15
-                ws.column_dimensions['C'].width = 15
-                ws.column_dimensions['D'].width = 15
+                for col_idx in range(2, last_col + 1):
+                    ws.column_dimensions[get_column_letter(col_idx)].width = 12
 
                 # Add Total row
-                ws.cell(row=last_row+1, column=1, value="TOTAL GÉNÉRAL").font = Font(bold=True)
-                ws.cell(row=last_row+1, column=2, value=f"=SUM(B4:B{last_row})").font = Font(bold=True)
-                ws.cell(row=last_row+1, column=3, value=f"=SUM(C4:C{last_row})").font = Font(bold=True)
-                for col in range(1, 4):
-                     ws.cell(row=last_row+1, column=col).border = border
-
-                # Add Chart
-                chart = BarChart()
-                chart.type = "col"
-                chart.style = 10
-                chart.title = "Répartition des Dérogations par École"
-                chart.y_axis.title = "Nombre"
-                chart.x_axis.title = "Écoles"
+                t_row = last_row + 1
+                ws.cell(row=t_row, column=1, value="TOTAL GÉNÉRAL").font = Font(bold=True)
+                # Calculate sums for all columns except Ecole and % Dérog.
+                for c_idx in range(2, last_col + 1):
+                    col_name = ws.cell(row=3, column=c_idx).value
+                    if col_name == "% Dérog.": 
+                        c_letter = get_column_letter(c_idx)
+                        ws.cell(row=t_row, column=c_idx, value=f"=AVERAGE({c_letter}4:{c_letter}{last_row})").font = Font(bold=True)
+                        ws.cell(row=t_row, column=c_idx).number_format = '0.0'
+                        continue
+                        
+                    c_letter = get_column_letter(c_idx)
+                    ws.cell(row=t_row, column=c_idx, value=f"=SUM({c_letter}4:{c_letter}{last_row})").font = Font(bold=True)
                 
-                data = Reference(ws, min_col=2, min_row=3, max_row=last_row, max_col=3)
-                cats = Reference(ws, min_col=1, min_row=4, max_row=last_row)
-                chart.add_data(data, titles_from_data=True)
-                chart.set_categories(cats)
-                chart.shape = 4
-                ws.add_chart(chart, "F4")
+                for col in range(1, last_col + 1):
+                     ws.cell(row=t_row, column=col).border = border
+
+                # Add STACKED Bar Chart
+                # Data for chart: dynamic sheets
+                stacked_cols = params["selected_sheets"]
+                chart_col_indices = [col_indices[c] for c in stacked_cols if c in col_indices]
+                
+                if chart_col_indices:
+                    chart = BarChart()
+                    chart.type = "col"
+                    chart.grouping = "stacked"
+                    chart.overlap = 100
+                    chart.title = "Répartition des États par École"
+                    chart.y_axis.title = "Nombre de dossiers"
+                    chart.x_axis.title = "Écoles"
+                    
+                    # We need to create multiple series if columns are not contiguous, 
+                    # but usually they are. For simplicity, we'll try to find the range.
+                    min_c = min(chart_col_indices)
+                    max_c = max(chart_col_indices)
+                    
+                    data = Reference(ws, min_col=min_c, min_row=3, max_row=last_row, max_col=max_c)
+                    cats = Reference(ws, min_col=1, min_row=4, max_row=last_row)
+                    chart.add_data(data, titles_from_data=True)
+                    chart.set_categories(cats)
+                    
+                    chart.legend.position = "r"
+                    ws.add_chart(chart, f"A{t_row + 3}")
 
             # Stylize School Tabs
             for sheet_name in wb.sheetnames:
@@ -477,7 +537,7 @@ class ExcelConverterApp:
             wb.save(params["output_path"])
             if os.path.exists(temp_path): os.remove(temp_path)
             self.log("Terminé avec succès !")
-            messagebox.showinfo("Succès", f"Fichier généré avec Synthèse et Graphiques.")
+            messagebox.showinfo("Succès", f"Fichier v9 généré (Synthèse avancée + Graphique empilé).")
             
         except Exception as e:
             self.log(f"ERREUR : {e}")

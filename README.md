@@ -6,7 +6,7 @@ Application Windows permettant de convertir des exports HTML/Excel d'inscription
 - **Interface Graphique** : Facile d'utilisation avec le logo de la ville.
 - **Sélection des Onglets** : Choisissez quels onglets de l'export traiter.
 - **Sélection des Écoles (Nouveau)** : Choisissez spécifiquement les écoles à inclure dans l'export via une liste dynamique.
-- **Onglet de Synthèse (Nouveau)** : Premier onglet récapitulatif avec statistiques (totaux, dérogations) et graphiques illustrant la répartition par école.
+- **Onglet de Synthèse Personnalisable** : Génération optionnelle d'un onglet récapitulatif avec choix des colonnes à afficher, statistiques exactes (moyennes) et graphiques illustrant la répartition par école.
 - **Filtrage par Date** : Filtrez les inscriptions par date de création (Optionnel).
 - **Filtre Dérogation** : Filtrez les dossiers avec ou sans besoin de dérogation.
 - **Mise en Forme Automatique** : Génère un fichier Excel pro avec en-têtes stylisés, filtres et alignement vertical "Haut".
@@ -27,7 +27,7 @@ Application Windows permettant de convertir des exports HTML/Excel d'inscription
    ```
 
 ## Compilation en .exe
-Pour générer l'exécutable Windows :
+Pour générer l'exécutable Windows optimisé (~55 Mo au lieu de >200 Mo) :
 ```bash
-python -m PyInstaller --onefile --noconsole --add-data "1280px-LogoIllzach.jpg;." --collect-submodules tkcalendar --collect-submodules babel --name "ConvertisseurInscriptionScolaire" --icon "app_icon.ico" converter_app.py
+python -m PyInstaller --onefile --noconsole --add-data "1280px-LogoIllzach.jpg;." --collect-submodules tkcalendar --collect-submodules babel --exclude-module torch --exclude-module scipy --exclude-module matplotlib --exclude-module PyQt5 --exclude-module IPython --exclude-module notebook --exclude-module sqlite3 --name "ConvertisseurInscriptionScolaire" converter_app.py
 ```

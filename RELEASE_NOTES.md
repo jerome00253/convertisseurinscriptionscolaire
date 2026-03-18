@@ -1,27 +1,48 @@
-# Release v1.2.0 - Onglet Synthèse & Graphiques 📊
+# Release v1.3.1 - Synthèse Personnalisable & Optimisation 🚀
 
-Cette version transforme l'export brut en un véritable outil de pilotage grâce à un nouvel onglet récapitulatif.
+Cette mise à jour apporte plus de flexibilité dans la génération des rapports et réduit drastiquement la taille du logiciel.
 
-## 🌟 Nouveautés de la version 1.2.0
+## 🌟 Nouveautés de la version 1.3.1
 
-### Fonctionnalités de Traitement
-- **Onglet "Synthèse" (v8)** : Le premier onglet du fichier généré présente désormais un tableau récapitulatif :
-    - Nombre total d'inscriptions.
-    - Détail par école (Inscriptions, Dérogations, Pourcentage).
-- **Graphiques Automatiques** : Ajout d'un graphique à barres dans l'onglet Synthèse pour visualiser la répartition des dérogations par école.
+### Synthèse à la Carte
+- **Génération Optionnelle** : Activez ou désactivez la page de synthèse selon vos besoins.
+- **Sélection des Colonnes** : Choisissez précisément les indicateurs à afficher (Traités, En cours, Refus, Autres, etc.).
+- **Sources Fiables** : Le comptage se base désormais intelligemment sur l'onglet d'origine du fichier source.
+- **Correction Mathématique** : Le pourcentage de dérogation global affiche désormais une moyenne exacte au lieu d'une somme.
 
-### Excellence Visuelle
-- **Mise en forme des tableaux** : Styles de bordures, en-têtes colorés et calculs automatiques des totaux.
-- **Optimisation DLL** : Maintien de la correction pour l'erreur "Ordinal 380", garantissant un lancement fluide sur Windows 11.
+### Optimisation des Performances
+- **Poids Plume** : Taille de l'exécutable réduite de 213 Mo à ~55 Mo grâce à l'exclusion de librairies inutilisées.
+- **Stabilité** : Correction d'un bug d'interface survenant lors de l'activation du filtrage.
 
 ---
 
-## 📦 Comment installer / utiliser
+# Release v1.3.0 - Tableau de Bord Analytique 📊📈
 
-- **Pour les utilisateurs** : Téléchargez le fichier `ConvertisseurInscriptionScolaire.exe`.
-- **Pour les développeurs** :
-    1. Installez les dépendances : `pip install -r requirements.txt`
-    2. Lancez via `python converter_app.py`
+Cette mise à jour transforme le convertisseur en un véritable outil d'analyse décisionnelle avec un suivi granulaire des dossiers.
+
+## 🌟 Nouveautés de la version 1.3.0
+
+### Synthèse Analytique (v9)
+- **Suivi des États Dossiers** : Le tableau de synthèse identifie et compte désormais les dossiers par état :
+    - **Traités** (Validés, Terminés).
+    - **En cours** (Instruction, Attente).
+    - **Refus** (Annulés, Rejetés).
+    - **Autres** (États non identifiés).
+- **Graphiques Empilés (Stacked Bar Charts)** : Visualisation de la décomposition des états par école pour identifier immédiatement les goulots d'étranglement ou les volumes de traitement.
+- **Mise en page Intuitive** : Graphique positionné directement sous les statistiques pour une lecture naturelle.
+
+### Rappel des acquis (v1.1.0 & v1.2.0)
+- **Sélection des Écoles** : Panneau de filtrage dynamique par établissement.
+- **Filtre Dérogation Professionnel** : Décompte et pourcentage de dérogations par école.
+- **Correction Windows 11** : Optimisation des DLL pour supprimer l'erreur "Ordinal 380".
+
+---
+
+## 📦 Utilisation
+
+1. Installez le nouveau `ConvertisseurInscriptionScolaire.exe`.
+2. Analysez vos exports Illzach.
+3. Obtenez un fichier Excel prêt pour vos réunions de pilotage.
 
 ---
 *Développé avec ❤️ pour la ville d'Illzach.*
